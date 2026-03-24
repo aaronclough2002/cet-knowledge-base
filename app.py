@@ -1,5 +1,4 @@
 from datetime import datetime
-from math import ceil
 from pathlib import Path
 
 import pandas as pd
@@ -37,17 +36,137 @@ from modules.qa_engine import (
 
 st.set_page_config(page_title=APP_NAME, page_icon="📚", layout="wide")
 
+
+# ---------- HELPERS ----------
+def format_uploaded_date(uploaded_at: str) -> str:
+    if not uploaded_at:
+        return "Unknown"
+    try:
+        return datetime.fromisoformat(uploaded_at).strftime("%m/%d/%y %I:%M %p")
+    except Exception:
+        return uploaded_at
+
+
+def get_display_name(record: dict) -> str:
+    display_name = record.get("display_name", "").strip()
+    if display_name:
+        return display_name
+    return Path(record.get("filename", "Untitled document")).stem
+
+
+def shorten_summary(summary: str, max_words: int = 15) -> str:
+    if not summary:
+        return "Summary unavailable."
+    words = summary.split()
+    if len(words) <= max_words:
+        return summary
+    return " ".join(words[:max_words]).rstrip(".,;:") + "..."
+
+
+def normalize_display_name(name: str, filename: str) -> str:
+    cleaned = name.strip()
+    if not cleaned:
+        cleaned = Path(filename).stem
+    return Path(cleaned).stem.strip()
+
+
+def get_file_type(filename: str) -> str:
+    suffix = Path(filename).suffix.replace(".", "").upper()
+    return suffix if suffix else "FILE"
+
+
+def build_library_dataframe(records: list[dict]) -> pd.DataFrame:
+    return pd.DataFrame(
+        [
+            {
+                "Name": get_display_name(record),
+                "Summary": shorten_summary(record.get("summary", "")),
+                "Uploaded": format_uploaded_date(record.get("uploaded_at", "")),
+                "Type": get_file_type(record.get("filename", "")),
+            }
+            for record in records
+        ]
+    )
+
+
+# ---------- STYLING ----------
+st.markdown(
+    """
+    <style>
+    .stApp {
+        background: linear-gradient(180deg, #0b1220 0%, #0f172a 100%);
+    }
+
+    .block-container {
+        max-width: 1120px;
+        padding-top: 1.1rem;
+        padding-bottom: 1rem;
+    }
+
+    h1, h2, h3 {
+        letter-spacing: -0.02em;
+    }
+
+    .top-note {
+        color: #94a3b8;
+        margin-bottom: 1rem;
+        max-width: 920px;
+        line-height: 1.5;
+        font-size: 0.98rem;
+    }
+
+    .answer-card {
+        border: 1px solid #ffffff;
+        padding: 14px;
+        border-radius: 8px;
+        background: #0f172a;
+        line-height: 1.55;
+    }
+
+    .empty-state {
+        border: 1px dashed #ffffff;
+        padding: 14px;
+        border-radius: 8px;
+        color: #94a3b8;
+    }
+
+    div[data-testid="stDownloadButton"] > button {
+        border-radius: 8px;
+    }
+
+    div[data-testid="stButton"] > button,
+    div[data-testid="stFormSubmitButton"] > button {
+        border-radius: 8px;
+    }
+
+    div[data-testid="stVerticalBlock"] > div:empty {
+        display: none !important;
+    }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
+
 # ---------- HEADER ----------
 st.title(APP_NAME)
 st.caption(f"{APP_VERSION} Demo | Built by {BUILT_BY}")
 
+st.markdown(
+    """
+    <div class="top-note">
+    Build a shared enterprise document library across teams and subsidiaries, and ask questions across all uploaded documents.
+    </div>
+    """,
+    unsafe_allow_html=True,
+)
+
+# ---------- TOP ----------
 col1, col2 = st.columns(2, gap="large")
 
 # ---------- UPLOAD ----------
 with col1:
     st.subheader("Upload document")
 
-    # 🔥 NEW: EXPLANATION PANEL
     with st.expander("ℹ️ What gets rejected?"):
         st.markdown("""
         The system enforces validation at upload to prevent sensitive or inappropriate content from entering the knowledge base.
@@ -56,15 +175,15 @@ with col1:
 
         - **Forward-looking company plans**
           - Hiring plans, layoffs, restructuring, expansion
-          - Workforce changes tied to future dates (e.g., 2026+)
+          - Workforce changes tied to future dates
           - Strategy, projections, or planning language
 
         - **Sensitive personal data**
           - Social Security Numbers (SSNs)
 
-        - **Script or dialogue-style content**
-          - Character dialogue (e.g., "John:")
-          - Scene formats (INT., EXT., FADE IN, CUT TO)
+        - **Programming code or scripts**
+          - JavaScript, Python, SQL, HTML script tags, or similar code
+          - Examples include `function()`, `console.log`, `def`, `class`, `SELECT ... FROM`, `<script>`
 
         - **Unreadable or low-quality files**
           - Scanned PDFs with no extractable text
@@ -74,7 +193,7 @@ with col1:
         - Historical reports
         - Completed initiatives
         - Past HR or financial summaries
-        """)
+        """) 
 
     uploaded_file = st.file_uploader(
         "Choose a file",
@@ -96,9 +215,8 @@ with col1:
     )
 
     if upload_clicked and uploaded_file is not None:
-
-        # STEP 1 — File validation
         is_valid, message = validate_uploaded_file(uploaded_file)
+
         if not is_valid:
             st.error(message)
             st.stop()
@@ -106,40 +224,27 @@ with col1:
         file_bytes = uploaded_file.getvalue()
         file_hash = generate_file_hash(file_bytes)
 
-        # STEP 2 — Duplicate check
         if hash_exists(file_hash):
             st.info("This exact file is already in the shared library.")
             st.stop()
 
-        # STEP 3 — Extract text
         extracted_text = extract_text(uploaded_file.name, file_bytes)
 
-        # 🔴 Extraction failure check
         if not extracted_text or not extracted_text.strip():
             st.error(
                 "Upload rejected: Could not extract readable text from this file. "
-                "This typically occurs with scanned PDFs or unreadable documents."
+                "This often happens with scanned PDFs or unreadable documents."
             )
             st.stop()
 
-        # STEP 4 — Content validation
         valid, msg, char_count, word_count = validate_extracted_text(extracted_text)
 
         if not valid:
             st.error(f"Upload rejected: {msg}")
             st.stop()
 
-        # STEP 5 — Process document
-        clean_display_name = (
-            Path(display_name).stem if display_name.strip()
-            else Path(uploaded_file.name).stem
-        )
-
-        chunks = chunk_text(
-            extracted_text,
-            CHUNK_SIZE_WORDS,
-            CHUNK_OVERLAP_WORDS,
-        )
+        clean_display_name = normalize_display_name(display_name, uploaded_file.name)
+        chunks = chunk_text(extracted_text, CHUNK_SIZE_WORDS, CHUNK_OVERLAP_WORDS)
 
         with st.spinner("Processing document..."):
             try:
@@ -151,12 +256,7 @@ with col1:
             doc_id = generate_document_id()
             stored_path = save_uploaded_file(file_bytes, uploaded_file.name)
 
-            add_document_chunks(
-                doc_id,
-                uploaded_file.name,
-                chunks,
-                embeddings,
-            )
+            add_document_chunks(doc_id, uploaded_file.name, chunks, embeddings)
 
             add_document_record(
                 {
@@ -200,32 +300,104 @@ with col2:
 # ---------- ANSWER ----------
 if "answer" in st.session_state:
     st.markdown("## Answer")
-    st.markdown(st.session_state["answer"])
+    st.markdown(
+        f'<div class="answer-card">{st.session_state["answer"]}</div>',
+        unsafe_allow_html=True,
+    )
 
     if st.session_state.get("sources"):
         st.markdown("### Sources")
         for source in st.session_state["sources"]:
             st.caption(Path(source).stem)
 
+st.markdown("<div style='height: 1rem;'></div>", unsafe_allow_html=True)
+
 # ---------- LIBRARY ----------
 st.subheader("Library")
 
-records = sorted(
-    load_metadata(),
-    key=lambda r: r.get("uploaded_at", ""),
-    reverse=True,
-)
+records = sorted(load_metadata(), key=lambda r: r.get("uploaded_at", ""), reverse=True)
 
 if records:
-    df = pd.DataFrame([
-        {
-            "Name": r.get("display_name") or Path(r.get("filename")).stem,
-            "Summary": (r.get("summary") or "")[:100],
-            "Uploaded": r.get("uploaded_at"),
-        }
-        for r in records
-    ])
+    controls_col1, controls_col2, controls_col3 = st.columns([5, 1.2, 1.2], gap="small")
 
-    st.dataframe(df, use_container_width=True, hide_index=True)
+    with controls_col1:
+        search = st.text_input(
+            "Search documents",
+            placeholder="Search documents",
+            label_visibility="collapsed",
+        )
+
+    filtered = [
+        record for record in records
+        if search.lower() in (
+            f"{get_display_name(record)} {record.get('filename', '')} {record.get('summary', '')}".lower()
+        )
+    ]
+
+    if filtered:
+        with controls_col2:
+            page_size = st.selectbox("Rows", [5, 10, 20], index=1)
+
+        total_pages = max(1, (len(filtered) + page_size - 1) // page_size)
+
+        with controls_col3:
+            page = st.selectbox("Page", list(range(1, total_pages + 1)))
+
+        start = (page - 1) * page_size
+        end = start + page_size
+        page_records = filtered[start:end]
+
+        st.caption(f"Showing {start + 1}–{min(end, len(filtered))} of {len(filtered)} documents")
+
+        table_df = build_library_dataframe(page_records)
+
+        st.dataframe(
+            table_df,
+            use_container_width=True,
+            hide_index=True,
+            height=min(420, 56 + 35 * len(table_df)),
+        )
+
+        downloadable_records = [
+            record for record in page_records
+            if Path(record.get("stored_file_path", "")).exists()
+        ]
+
+        if downloadable_records:
+            dl_col1, dl_col2 = st.columns([5, 1], gap="small")
+
+            with dl_col1:
+                selected_download_name = st.selectbox(
+                    "Document to download",
+                    options=[get_display_name(record) for record in downloadable_records],
+                    label_visibility="collapsed",
+                )
+
+            selected_record = next(
+                record for record in downloadable_records
+                if get_display_name(record) == selected_download_name
+            )
+
+            with dl_col2:
+                with open(selected_record["stored_file_path"], "rb") as file_handle:
+                    st.download_button(
+                        label="Download",
+                        data=file_handle.read(),
+                        file_name=selected_record["filename"],
+                        help="Download selected document",
+                        use_container_width=True,
+                        key=f"download_{page}_{selected_record['filename']}",
+                    )
+    else:
+        st.markdown(
+            '<div class="empty-state">No documents matched your search.</div>',
+            unsafe_allow_html=True,
+        )
 else:
-    st.info("No documents yet.")
+    st.markdown(
+        '<div class="empty-state">No documents yet</div>',
+        unsafe_allow_html=True,
+    )
+
+# ---------- BOTTOM SPACE ----------
+st.markdown("<div style='height: 120px;'></div>", unsafe_allow_html=True)
