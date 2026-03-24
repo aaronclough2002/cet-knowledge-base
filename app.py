@@ -90,78 +90,10 @@ def build_library_dataframe(records: list[dict]) -> pd.DataFrame:
     )
 
 
-# ---------- STYLING ----------
-st.markdown(
-    """
-    <style>
-    .stApp {
-        background: linear-gradient(180deg, #0b1220 0%, #0f172a 100%);
-    }
-
-    .block-container {
-        max-width: 1120px;
-        padding-top: 1.1rem;
-        padding-bottom: 1rem;
-    }
-
-    h1, h2, h3 {
-        letter-spacing: -0.02em;
-    }
-
-    .top-note {
-        color: #94a3b8;
-        margin-bottom: 1rem;
-        max-width: 920px;
-        line-height: 1.5;
-        font-size: 0.98rem;
-    }
-
-    .answer-card {
-        border: 1px solid #ffffff;
-        padding: 14px;
-        border-radius: 8px;
-        background: #0f172a;
-        line-height: 1.55;
-    }
-
-    .empty-state {
-        border: 1px dashed #ffffff;
-        padding: 14px;
-        border-radius: 8px;
-        color: #94a3b8;
-    }
-
-    div[data-testid="stDownloadButton"] > button {
-        border-radius: 8px;
-    }
-
-    div[data-testid="stButton"] > button,
-    div[data-testid="stFormSubmitButton"] > button {
-        border-radius: 8px;
-    }
-
-    div[data-testid="stVerticalBlock"] > div:empty {
-        display: none !important;
-    }
-    </style>
-    """,
-    unsafe_allow_html=True,
-)
-
-# ---------- HEADER ----------
+# ---------- UI ----------
 st.title(APP_NAME)
 st.caption(f"{APP_VERSION} Demo | Built by {BUILT_BY}")
 
-st.markdown(
-    """
-    <div class="top-note">
-    Build a shared enterprise document library across teams and subsidiaries, and ask questions across all uploaded documents.
-    </div>
-    """,
-    unsafe_allow_html=True,
-)
-
-# ---------- TOP ----------
 col1, col2 = st.columns(2, gap="large")
 
 # ---------- UPLOAD ----------
@@ -177,10 +109,7 @@ with col1:
     if uploaded_file is not None:
         st.caption(f"Selected: {uploaded_file.name}")
 
-    display_name = st.text_input(
-        "Document name",
-        placeholder="Enter clean name",
-    )
+    display_name = st.text_input("Document name", placeholder="Enter clean name")
 
     upload_clicked = st.button(
         "Add to library",
@@ -188,55 +117,78 @@ with col1:
     )
 
     if upload_clicked and uploaded_file is not None:
+
+        # STEP 1: Basic file validation
         is_valid, message = validate_uploaded_file(uploaded_file)
 
         if not is_valid:
             st.error(message)
-        else:
-            file_bytes = uploaded_file.getvalue()
-            file_hash = generate_file_hash(file_bytes)
+            st.stop()
 
-            if hash_exists(file_hash):
-                st.info("This exact file is already in the shared library.")
-            else:
-                extracted_text = extract_text(uploaded_file.name, file_bytes)
-                valid, msg, char_count, word_count = validate_extracted_text(extracted_text)
+        file_bytes = uploaded_file.getvalue()
+        file_hash = generate_file_hash(file_bytes)
 
-                if not valid:
-                    st.error(msg)
-                else:
-                    clean_display_name = normalize_display_name(display_name, uploaded_file.name)
-                    chunks = chunk_text(extracted_text, CHUNK_SIZE_WORDS, CHUNK_OVERLAP_WORDS)
+        # STEP 2: Duplicate check
+        if hash_exists(file_hash):
+            st.info("This exact file is already in the shared library.")
+            st.stop()
 
-                    with st.spinner("Processing document..."):
-                        try:
-                            summary = generate_document_summary(extracted_text)
-                        except Exception:
-                            summary = "Summary unavailable."
+        # STEP 3: Extract text
+        extracted_text = extract_text(uploaded_file.name, file_bytes)
 
-                        embeddings = embed_chunks(chunks)
-                        doc_id = generate_document_id()
-                        stored_path = save_uploaded_file(file_bytes, uploaded_file.name)
+        # 🔴 CRITICAL: Extraction safety check
+        if not extracted_text or not extracted_text.strip():
+            st.error(
+                "Could not extract readable text from this file. "
+                "Please upload a valid PDF, DOCX, or TXT file."
+            )
+            st.stop()
 
-                        add_document_chunks(doc_id, uploaded_file.name, chunks, embeddings)
+        # STEP 4: Content validation (future plans, SSN, scripts)
+        valid, msg, char_count, word_count = validate_extracted_text(extracted_text)
 
-                        add_document_record(
-                            {
-                                "document_id": doc_id,
-                                "filename": uploaded_file.name,
-                                "display_name": clean_display_name,
-                                "file_hash": file_hash,
-                                "uploaded_at": datetime.utcnow().isoformat(),
-                                "char_count": char_count,
-                                "word_count": word_count,
-                                "chunk_count": len(chunks),
-                                "embedding_count": len(embeddings),
-                                "stored_file_path": stored_path,
-                                "summary": summary,
-                            }
-                        )
+        if not valid:
+            st.error(msg)
+            st.caption(
+                "Uploads are blocked if they contain future company plans, "
+                "SSNs, or script-style content."
+            )
+            st.stop()
 
-                    st.success(f"Added: {clean_display_name}")
+        # STEP 5: Process document
+        clean_display_name = normalize_display_name(display_name, uploaded_file.name)
+        chunks = chunk_text(extracted_text, CHUNK_SIZE_WORDS, CHUNK_OVERLAP_WORDS)
+
+        with st.spinner("Processing document..."):
+            try:
+                summary = generate_document_summary(extracted_text)
+            except Exception:
+                summary = "Summary unavailable."
+
+            embeddings = embed_chunks(chunks)
+            doc_id = generate_document_id()
+            stored_path = save_uploaded_file(file_bytes, uploaded_file.name)
+
+            add_document_chunks(doc_id, uploaded_file.name, chunks, embeddings)
+
+            add_document_record(
+                {
+                    "document_id": doc_id,
+                    "filename": uploaded_file.name,
+                    "display_name": clean_display_name,
+                    "file_hash": file_hash,
+                    "uploaded_at": datetime.utcnow().isoformat(),
+                    "char_count": char_count,
+                    "word_count": word_count,
+                    "chunk_count": len(chunks),
+                    "embedding_count": len(embeddings),
+                    "stored_file_path": stored_path,
+                    "summary": summary,
+                }
+            )
+
+        st.success(f"Added: {clean_display_name}")
+
 
 # ---------- ASK ----------
 with col2:
@@ -259,20 +211,17 @@ with col2:
         st.session_state["answer"] = answer
         st.session_state["sources"] = sources
 
+
 # ---------- ANSWER ----------
 if "answer" in st.session_state:
     st.markdown("## Answer")
-    st.markdown(
-        f'<div class="answer-card">{st.session_state["answer"]}</div>',
-        unsafe_allow_html=True,
-    )
+    st.markdown(st.session_state["answer"])
 
     if st.session_state.get("sources"):
         st.markdown("### Sources")
         for source in st.session_state["sources"]:
             st.caption(Path(source).stem)
 
-st.markdown("<div style='height: 1rem;'></div>", unsafe_allow_html=True)
 
 # ---------- LIBRARY ----------
 st.subheader("Library")
@@ -280,86 +229,7 @@ st.subheader("Library")
 records = sorted(load_metadata(), key=lambda r: r.get("uploaded_at", ""), reverse=True)
 
 if records:
-    controls_col1, controls_col2, controls_col3 = st.columns([5, 1.2, 1.2], gap="small")
-
-    with controls_col1:
-        search = st.text_input(
-            "Search documents",
-            placeholder="Search documents",
-            label_visibility="collapsed",
-        )
-
-    filtered = [
-        record for record in records
-        if search.lower() in (
-            f"{get_display_name(record)} {record.get('filename', '')} {record.get('summary', '')}".lower()
-        )
-    ]
-
-    if filtered:
-        with controls_col2:
-            page_size = st.selectbox("Rows", [5, 10, 20], index=1)
-
-        total_pages = max(1, ceil(len(filtered) / page_size))
-
-        with controls_col3:
-            page = st.selectbox("Page", list(range(1, total_pages + 1)))
-
-        start = (page - 1) * page_size
-        end = start + page_size
-        page_records = filtered[start:end]
-
-        st.caption(f"Showing {start + 1}–{min(end, len(filtered))} of {len(filtered)} documents")
-
-        table_df = build_library_dataframe(page_records)
-
-        st.dataframe(
-            table_df,
-            use_container_width=True,
-            hide_index=True,
-            height=min(420, 56 + 35 * len(table_df)),
-        )
-
-        downloadable_records = [
-            record for record in page_records
-            if Path(record.get("stored_file_path", "")).exists()
-        ]
-
-        if downloadable_records:
-            dl_col1, dl_col2 = st.columns([5, 1], gap="small")
-
-            with dl_col1:
-                selected_download_name = st.selectbox(
-                    "Document to download",
-                    options=[get_display_name(record) for record in downloadable_records],
-                    label_visibility="collapsed",
-                )
-
-            selected_record = next(
-                record for record in downloadable_records
-                if get_display_name(record) == selected_download_name
-            )
-
-            with dl_col2:
-                with open(selected_record["stored_file_path"], "rb") as file_handle:
-                    st.download_button(
-                        label="Download",
-                        data=file_handle.read(),
-                        file_name=selected_record["filename"],
-                        help="Download selected document",
-                        use_container_width=True,
-                        key=f"download_{page}_{selected_record['filename']}",
-                    )
-    else:
-        st.markdown(
-            '<div class="empty-state">No documents matched your search.</div>',
-            unsafe_allow_html=True,
-        )
+    df = build_library_dataframe(records)
+    st.dataframe(df, use_container_width=True, hide_index=True)
 else:
-    st.markdown(
-        '<div class="empty-state">No documents yet</div>',
-        unsafe_allow_html=True,
-    )
-
-# ---------- BOTTOM SPACE ----------
-st.markdown("<div style='height: 120px;'></div>", unsafe_allow_html=True)
+    st.info("No documents yet.")
