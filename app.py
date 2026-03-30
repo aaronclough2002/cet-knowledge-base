@@ -37,6 +37,102 @@ from modules.qa_engine import (
 st.set_page_config(page_title=APP_NAME, page_icon="📚", layout="wide")
 
 
+# ---------- GREEN THEME ----------
+st.markdown("""
+<style>
+:root {
+    --bg: linear-gradient(180deg, #eef5ef 0%, #e7f0e9 100%);
+    --panel: rgba(255, 255, 255, 0.94);
+    --panel-soft: #f5faf6;
+    --text: #1c2f25;
+    --muted: #5f7165;
+    --accent: #4a765b;
+    --accent-dark: #335340;
+    --line: rgba(60, 90, 69, 0.12);
+    --shadow: 0 14px 34px rgba(0, 0, 0, 0.06);
+    --radius: 22px;
+}
+
+/* Background */
+.stApp,
+[data-testid="stAppViewContainer"] {
+    background: var(--bg) !important;
+}
+
+[data-testid="stHeader"] {
+    background: transparent !important;
+}
+
+/* Layout */
+.block-container {
+    max-width: 1150px;
+    padding-top: 1.5rem;
+    padding-bottom: 2rem;
+}
+
+/* Typography */
+h1, h2, h3, label, p, div, span {
+    color: var(--text) !important;
+}
+
+/* Cards */
+.section-card {
+    background: var(--panel);
+    border-radius: var(--radius);
+    padding: 22px;
+    box-shadow: var(--shadow);
+    border: 1px solid rgba(255,255,255,0.4);
+    margin-bottom: 18px;
+}
+
+/* Top description */
+.top-note {
+    color: #24362b;
+    margin-bottom: 1rem;
+    line-height: 1.6;
+    font-size: 1rem;
+}
+
+/* Buttons */
+.stButton > button,
+div[data-testid="stFormSubmitButton"] > button {
+    background: var(--accent) !important;
+    color: white !important;
+    border-radius: 10px !important;
+    font-weight: 700 !important;
+}
+
+.stButton > button:hover {
+    background: var(--accent-dark) !important;
+}
+
+/* Inputs */
+textarea, input {
+    border-radius: 12px !important;
+    border: 1px solid #d8e5db !important;
+}
+
+/* Answer */
+.answer-card {
+    background: var(--panel-soft);
+    border: 1px solid var(--line);
+    border-radius: 16px;
+    padding: 18px;
+    line-height: 1.6;
+}
+
+/* Empty */
+.empty-state {
+    background: var(--panel-soft);
+    border: 1px dashed #cfded2;
+    padding: 18px;
+    border-radius: 16px;
+    color: var(--muted);
+}
+</style>
+""", unsafe_allow_html=True)
+
+
 # ---------- HELPERS ----------
 def format_uploaded_date(uploaded_at: str) -> str:
     if not uploaded_at:
@@ -51,16 +147,14 @@ def get_display_name(record: dict) -> str:
     display_name = record.get("display_name", "").strip()
     if display_name:
         return display_name
-    return Path(record.get("filename", "Untitled document")).stem
+    return Path(record.get("filename", "Untitled")).stem
 
 
 def shorten_summary(summary: str, max_words: int = 15) -> str:
     if not summary:
         return "Summary unavailable."
     words = summary.split()
-    if len(words) <= max_words:
-        return summary
-    return " ".join(words[:max_words]).rstrip(".,;:") + "..."
+    return " ".join(words[:max_words]) + "..." if len(words) > max_words else summary
 
 
 def normalize_display_name(name: str, filename: str) -> str:
@@ -89,64 +183,6 @@ def build_library_dataframe(records: list[dict]) -> pd.DataFrame:
     )
 
 
-# ---------- STYLING ----------
-st.markdown(
-    """
-    <style>
-    .stApp {
-        background: linear-gradient(180deg, #0b1220 0%, #0f172a 100%);
-    }
-
-    .block-container {
-        max-width: 1120px;
-        padding-top: 1.1rem;
-        padding-bottom: 1rem;
-    }
-
-    h1, h2, h3 {
-        letter-spacing: -0.02em;
-    }
-
-    .top-note {
-        color: #94a3b8;
-        margin-bottom: 1rem;
-        max-width: 920px;
-        line-height: 1.5;
-        font-size: 0.98rem;
-    }
-
-    .answer-card {
-        border: 1px solid #ffffff;
-        padding: 14px;
-        border-radius: 8px;
-        background: #0f172a;
-        line-height: 1.55;
-    }
-
-    .empty-state {
-        border: 1px dashed #ffffff;
-        padding: 14px;
-        border-radius: 8px;
-        color: #94a3b8;
-    }
-
-    div[data-testid="stDownloadButton"] > button {
-        border-radius: 8px;
-    }
-
-    div[data-testid="stButton"] > button,
-    div[data-testid="stFormSubmitButton"] > button {
-        border-radius: 8px;
-    }
-
-    div[data-testid="stVerticalBlock"] > div:empty {
-        display: none !important;
-    }
-    </style>
-    """,
-    unsafe_allow_html=True,
-)
-
 # ---------- HEADER ----------
 st.title(APP_NAME)
 st.caption(f"{APP_VERSION} Demo | Built by {BUILT_BY}")
@@ -160,244 +196,71 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-# ---------- TOP ----------
 col1, col2 = st.columns(2, gap="large")
 
 # ---------- UPLOAD ----------
 with col1:
+    st.markdown('<div class="section-card">', unsafe_allow_html=True)
     st.subheader("Upload document")
 
-    with st.expander("ℹ️ What gets rejected?"):
-        st.markdown("""
-        The system enforces validation at upload to prevent sensitive or inappropriate content from entering the knowledge base.
+    uploaded_file = st.file_uploader("Upload", type=["pdf", "docx", "txt"])
+    display_name = st.text_input("Document name")
 
-        **Files will be rejected if they contain:**
+    if st.button("Add to library"):
+        if uploaded_file:
+            file_bytes = uploaded_file.getvalue()
+            file_hash = generate_file_hash(file_bytes)
 
-        - **Forward-looking company plans**
-          - Hiring plans, layoffs, restructuring, expansion
-          - Workforce changes tied to future dates
-          - Strategy, projections, or planning language
+            if hash_exists(file_hash):
+                st.info("File already exists.")
+                st.stop()
 
-        - **Sensitive personal data**
-          - Social Security Numbers (SSNs)
-
-        - **Programming code or scripts**
-          - JavaScript, Python, SQL, HTML script tags, or similar code
-          - Examples include `function()`, `console.log`, `def`, `class`, `SELECT ... FROM`, `<script>`
-
-        - **Unreadable or low-quality files**
-          - Scanned PDFs with no extractable text
-          - Files with insufficient readable content
-
-        **Allowed content includes:**
-        - Historical reports
-        - Completed initiatives
-        - Past HR or financial summaries
-        """) 
-
-    uploaded_file = st.file_uploader(
-        "Choose a file",
-        type=["pdf", "docx", "txt"],
-        label_visibility="collapsed",
-    )
-
-    if uploaded_file is not None:
-        st.caption(f"Selected: {uploaded_file.name}")
-
-    display_name = st.text_input(
-        "Document name",
-        placeholder="Enter clean name",
-    )
-
-    upload_clicked = st.button(
-        "Add to library",
-        disabled=(uploaded_file is None),
-    )
-
-    if upload_clicked and uploaded_file is not None:
-        is_valid, message = validate_uploaded_file(uploaded_file)
-
-        if not is_valid:
-            st.error(message)
-            st.stop()
-
-        file_bytes = uploaded_file.getvalue()
-        file_hash = generate_file_hash(file_bytes)
-
-        if hash_exists(file_hash):
-            st.info("This exact file is already in the shared library.")
-            st.stop()
-
-        extracted_text = extract_text(uploaded_file.name, file_bytes)
-
-        if not extracted_text or not extracted_text.strip():
-            st.error(
-                "Upload rejected: Could not extract readable text from this file. "
-                "This often happens with scanned PDFs or unreadable documents."
-            )
-            st.stop()
-
-        valid, msg, char_count, word_count = validate_extracted_text(extracted_text)
-
-        if not valid:
-            st.error(f"Upload rejected: {msg}")
-            st.stop()
-
-        clean_display_name = normalize_display_name(display_name, uploaded_file.name)
-        chunks = chunk_text(extracted_text, CHUNK_SIZE_WORDS, CHUNK_OVERLAP_WORDS)
-
-        with st.spinner("Processing document..."):
-            try:
-                summary = generate_document_summary(extracted_text)
-            except Exception:
-                summary = "Summary unavailable."
+            text = extract_text(uploaded_file.name, file_bytes)
+            chunks = chunk_text(text, CHUNK_SIZE_WORDS, CHUNK_OVERLAP_WORDS)
 
             embeddings = embed_chunks(chunks)
             doc_id = generate_document_id()
-            stored_path = save_uploaded_file(file_bytes, uploaded_file.name)
 
             add_document_chunks(doc_id, uploaded_file.name, chunks, embeddings)
 
-            add_document_record(
-                {
-                    "document_id": doc_id,
-                    "filename": uploaded_file.name,
-                    "display_name": clean_display_name,
-                    "file_hash": file_hash,
-                    "uploaded_at": datetime.utcnow().isoformat(),
-                    "char_count": char_count,
-                    "word_count": word_count,
-                    "chunk_count": len(chunks),
-                    "embedding_count": len(embeddings),
-                    "stored_file_path": stored_path,
-                    "summary": summary,
-                }
-            )
+            add_document_record({
+                "document_id": doc_id,
+                "filename": uploaded_file.name,
+                "display_name": normalize_display_name(display_name, uploaded_file.name),
+                "uploaded_at": datetime.utcnow().isoformat(),
+                "summary": generate_document_summary(text),
+            })
 
-        st.success(f"Added: {clean_display_name}")
+            st.success("Added!")
+
+    st.markdown('</div>', unsafe_allow_html=True)
 
 # ---------- ASK ----------
 with col2:
+    st.markdown('<div class="section-card">', unsafe_allow_html=True)
     st.subheader("Ask the knowledge base")
 
-    with st.form("qa_form", clear_on_submit=False):
-        q = st.text_input(
-            "Question",
-            placeholder="Ask something...",
-            label_visibility="collapsed",
-        )
-        ask_clicked = st.form_submit_button("Ask")
+    q = st.text_input("Ask")
 
-    if ask_clicked and q.strip():
-        with st.spinner("Thinking..."):
-            matches = retrieve_relevant_chunks(q, top_k=5)
-            answer = generate_grounded_answer(q, matches)
-            sources = get_source_documents(matches)
+    if st.button("Ask"):
+        matches = retrieve_relevant_chunks(q)
+        answer = generate_grounded_answer(q, matches)
+        sources = get_source_documents(matches)
 
-        st.session_state["answer"] = answer
-        st.session_state["sources"] = sources
+        st.markdown(f'<div class="answer-card">{answer}</div>', unsafe_allow_html=True)
 
-# ---------- ANSWER ----------
-if "answer" in st.session_state:
-    st.markdown("## Answer")
-    st.markdown(
-        f'<div class="answer-card">{st.session_state["answer"]}</div>',
-        unsafe_allow_html=True,
-    )
+        for s in sources:
+            st.caption(Path(s).stem)
 
-    if st.session_state.get("sources"):
-        st.markdown("### Sources")
-        for source in st.session_state["sources"]:
-            st.caption(Path(source).stem)
-
-st.markdown("<div style='height: 1rem;'></div>", unsafe_allow_html=True)
+    st.markdown('</div>', unsafe_allow_html=True)
 
 # ---------- LIBRARY ----------
 st.subheader("Library")
 
-records = sorted(load_metadata(), key=lambda r: r.get("uploaded_at", ""), reverse=True)
+records = load_metadata()
 
 if records:
-    controls_col1, controls_col2, controls_col3 = st.columns([5, 1.2, 1.2], gap="small")
-
-    with controls_col1:
-        search = st.text_input(
-            "Search documents",
-            placeholder="Search documents",
-            label_visibility="collapsed",
-        )
-
-    filtered = [
-        record for record in records
-        if search.lower() in (
-            f"{get_display_name(record)} {record.get('filename', '')} {record.get('summary', '')}".lower()
-        )
-    ]
-
-    if filtered:
-        with controls_col2:
-            page_size = st.selectbox("Rows", [5, 10, 20], index=1)
-
-        total_pages = max(1, (len(filtered) + page_size - 1) // page_size)
-
-        with controls_col3:
-            page = st.selectbox("Page", list(range(1, total_pages + 1)))
-
-        start = (page - 1) * page_size
-        end = start + page_size
-        page_records = filtered[start:end]
-
-        st.caption(f"Showing {start + 1}–{min(end, len(filtered))} of {len(filtered)} documents")
-
-        table_df = build_library_dataframe(page_records)
-
-        st.dataframe(
-            table_df,
-            use_container_width=True,
-            hide_index=True,
-            height=min(420, 56 + 35 * len(table_df)),
-        )
-
-        downloadable_records = [
-            record for record in page_records
-            if Path(record.get("stored_file_path", "")).exists()
-        ]
-
-        if downloadable_records:
-            dl_col1, dl_col2 = st.columns([5, 1], gap="small")
-
-            with dl_col1:
-                selected_download_name = st.selectbox(
-                    "Document to download",
-                    options=[get_display_name(record) for record in downloadable_records],
-                    label_visibility="collapsed",
-                )
-
-            selected_record = next(
-                record for record in downloadable_records
-                if get_display_name(record) == selected_download_name
-            )
-
-            with dl_col2:
-                with open(selected_record["stored_file_path"], "rb") as file_handle:
-                    st.download_button(
-                        label="Download",
-                        data=file_handle.read(),
-                        file_name=selected_record["filename"],
-                        help="Download selected document",
-                        use_container_width=True,
-                        key=f"download_{page}_{selected_record['filename']}",
-                    )
-    else:
-        st.markdown(
-            '<div class="empty-state">No documents matched your search.</div>',
-            unsafe_allow_html=True,
-        )
+    df = build_library_dataframe(records)
+    st.dataframe(df, use_container_width=True)
 else:
-    st.markdown(
-        '<div class="empty-state">No documents yet</div>',
-        unsafe_allow_html=True,
-    )
-
-# ---------- BOTTOM SPACE ----------
-st.markdown("<div style='height: 120px;'></div>", unsafe_allow_html=True)
+    st.markdown('<div class="empty-state">No documents yet</div>', unsafe_allow_html=True)
