@@ -18,5 +18,5 @@ EMBEDDING_MODEL_NAME = "text-embedding-3-small"
 
 # App branding
 APP_NAME = "Enterprise Knowledge Base Demo"
-APP_VERSION = "v1.0 Demo"
-BUILT_BY = "Built by Aaron Clough"
+APP_VERSION = "v1.0"
+BUILT_BY = "Aaron Clough"
